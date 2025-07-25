@@ -1,0 +1,106 @@
+name: 🧹 Cleanup Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to cleanup'
+        required: true
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
+      confirmation:
+        description: 'Type "DESTROY" to confirm deletion'
+        required: true
+        type: string
+      stack_name:
+        description: 'Stack name (optional, defaults to EcsProjectStack)'
+        required: false
+        type: string
+        default: 'EcsProjectStack'
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: '18'
+
+jobs:
+  cleanup:
+    name: 🧹 Destroy Infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: ⚠️ Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirmation }}" != "DESTROY" ]; then
+            echo "❌ Confirmation failed. You must type 'DESTROY' to proceed."
+            exit 1
+          fi
+          echo "✅ Confirmation validated"
+          
+      - name: 📂 Checkout code
+        uses: actions/checkout@v4
+        
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: 📦 Install dependencies
+        run: npm ci
+        
+      - name: 🔨 Build project
+        run: npm run build
+        
+      - name: ⚙️ Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets[format('AWS_ACCESS_KEY_ID_{0}', github.event.inputs.environment == 'prod' && 'PROD' || github.event.inputs.environment == 'staging' && 'STAGING' || '')] || secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets[format('AWS_SECRET_ACCESS_KEY_{0}', github.event.inputs.environment == 'prod' && 'PROD' || github.event.inputs.environment == 'staging' && 'STAGING' || '')] || secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+          
+      - name: 📋 Show what will be destroyed
+        run: |
+          echo "## ⚠️ Infrastructure to be destroyed:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Stack**: ${{ github.event.inputs.stack_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region**: ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          npx cdk ls || echo "No stacks found"
+          
+      - name: 🧹 Destroy CDK Stack
+        run: |
+          STACK_NAME="${{ github.event.inputs.stack_name }}"
+          if [ "${{ github.event.inputs.environment }}" != "dev" ]; then
+            STACK_NAME="${STACK_NAME}-${{ github.event.inputs.environment }}"
+          fi
+          
+          echo "Destroying stack: $STACK_NAME"
+          npx cdk destroy $STACK_NAME --force
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ secrets[format('CDK_DEFAULT_ACCOUNT_{0}', github.event.inputs.environment == 'prod' && 'PROD' || github.event.inputs.environment == 'staging' && 'STAGING' || '')] || secrets.CDK_DEFAULT_ACCOUNT }}
+          CDK_DEFAULT_REGION: ${{ env.AWS_REGION }}
+          
+      - name: 🧹 Cleanup orphaned resources (manual)
+        run: |
+          echo "## 🧹 Manual cleanup checklist:" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] ECR repositories (if not empty)" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] CloudWatch log groups (if retention is set)" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Route53 hosted zone (if externally managed)" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] ECS cluster (if other services exist)" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] RDS snapshots (if needed for recovery)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Please manually check these resources in the AWS console" >> $GITHUB_STEP_SUMMARY
+          
+      - name: ✅ Cleanup complete
+        run: |
+          echo "## ✅ Infrastructure Cleanup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "Environment **${{ github.event.inputs.environment }}** has been destroyed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next steps:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Verify all resources are deleted in AWS Console" >> $GITHUB_STEP_SUMMARY
+          echo "2. Check for any orphaned resources" >> $GITHUB_STEP_SUMMARY
+          echo "3. Review AWS billing for cost optimization" >> $GITHUB_STEP_SUMMARY

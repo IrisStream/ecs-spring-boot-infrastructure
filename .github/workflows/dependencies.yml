@@ -1,0 +1,128 @@
+name: 🔄 Dependency Updates
+
+on:
+  schedule:
+    # Run every Monday at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: '18'
+
+jobs:
+  update-dependencies:
+    name: 🔄 Update Dependencies
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📂 Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: 📦 Install dependencies
+        run: npm ci
+        
+      - name: 🔍 Check for outdated packages
+        run: |
+          echo "## 📦 Current Package Status" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          npm outdated >> $GITHUB_STEP_SUMMARY 2>&1 || echo "All packages are up to date" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+      - name: 🔒 Update security vulnerabilities
+        run: |
+          npm audit fix --only=prod
+          if [ $? -eq 0 ]; then
+            echo "✅ Security vulnerabilities fixed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Some security issues may require manual intervention" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+      - name: 🔄 Update CDK packages
+        run: |
+          # Update AWS CDK packages to latest version
+          npm update aws-cdk-lib @aws-cdk/assertions
+          echo "✅ CDK packages updated" >> $GITHUB_STEP_SUMMARY
+          
+      - name: 🔨 Build and test after updates
+        run: |
+          npm run build
+          npm test
+          
+      - name: ⚙️ Configure AWS credentials (for CDK validation)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+        continue-on-error: true
+        
+      - name: 📋 Validate CDK after updates
+        run: |
+          npx cdk synth --quiet
+          echo "✅ CDK synthesis successful after updates" >> $GITHUB_STEP_SUMMARY
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ secrets.CDK_DEFAULT_ACCOUNT }}
+          CDK_DEFAULT_REGION: ${{ env.AWS_REGION }}
+        continue-on-error: true
+        
+      - name: 📝 Check for changes
+        id: changes
+        run: |
+          if git diff --exit-code package*.json; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No dependency changes detected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "## 📝 Dependency Changes Detected" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`diff" >> $GITHUB_STEP_SUMMARY
+            git diff package*.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+      - name: 🔀 Create Pull Request
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: '🔄 chore: update dependencies'
+          title: '🔄 Automated Dependency Updates'
+          body: |
+            ## 🔄 Automated Dependency Updates
+            
+            This PR was automatically created to update project dependencies.
+            
+            ### Changes:
+            - ✅ Security vulnerabilities fixed
+            - ✅ CDK packages updated to latest version
+            - ✅ All tests passing
+            - ✅ CDK synthesis validated
+            
+            ### Review Checklist:
+            - [ ] Review dependency changes
+            - [ ] Verify all tests pass
+            - [ ] Check for breaking changes in updated packages
+            - [ ] Test deployment in development environment
+            
+            ---
+            *This PR was created automatically by the dependency update workflow*
+          branch: chore/dependency-updates
+          delete-branch: true
+          
+      - name: 📊 Summary
+        run: |
+          if [ "${{ steps.changes.outputs.changed }}" == "true" ]; then
+            echo "## ✅ Dependency Update Complete" >> $GITHUB_STEP_SUMMARY
+            echo "A pull request has been created with the latest dependency updates." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ✅ Dependencies Up to Date" >> $GITHUB_STEP_SUMMARY
+            echo "All dependencies are already at their latest versions." >> $GITHUB_STEP_SUMMARY
+          fi

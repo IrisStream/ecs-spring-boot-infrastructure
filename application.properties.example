@@ -1,0 +1,36 @@
+# Spring Boot Configuration for ECS Deployment
+
+# Server Configuration
+server.port=8080
+server.shutdown=graceful
+spring.lifecycle.timeout-per-shutdown-phase=30s
+
+# Actuator Configuration (required for health checks)
+management.endpoints.web.exposure.include=health,info,metrics
+management.endpoint.health.show-details=always
+management.endpoint.health.probes.enabled=true
+management.health.livenessstate.enabled=true
+management.health.readinessstate.enabled=true
+
+# Logging Configuration
+logging.level.root=INFO
+logging.level.com.yourpackage=DEBUG
+logging.pattern.console=%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
+
+# Production Profile Specific Settings
+---
+spring.config.activate.on-profile=prod
+
+# Database Configuration (example for RDS)
+# spring.datasource.url=jdbc:postgresql://your-rds-endpoint:5432/yourdb
+# spring.datasource.username=${DB_USERNAME:}
+# spring.datasource.password=${DB_PASSWORD:}
+# spring.jpa.hibernate.ddl-auto=validate
+# spring.jpa.show-sql=false
+
+# Performance Settings
+server.tomcat.max-threads=200
+server.tomcat.min-spare-threads=10
+
+# Security (if using Spring Security)
+# spring.security.require-ssl=true
