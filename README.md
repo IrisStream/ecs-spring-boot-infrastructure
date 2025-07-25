@@ -100,3 +100,4 @@ Update the following in `lib/ecs-project-stack.ts`:
 - Environment variables
 - CPU/Memory allocation
 - Scaling parameters
+# Testing CI/CD
